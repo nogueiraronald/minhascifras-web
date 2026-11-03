@@ -1,5 +1,5 @@
 // Service Worker para modo 100% offline do Minhas Cifras (PWA)
-const CACHE_NAME = 'minhas-cifras-offline-v4';
+const CACHE_NAME = 'minhas-cifras-offline-v5';
 
 const CORE_ASSETS = [
   './',
