@@ -1,6 +1,6 @@
 // Service Worker para modo 100% offline do Minhas Cifras (PWA)
 // O nome do cache e a lista de assets são injetados automaticamente no deploy.
-const CACHE_NAME = 'minhas-cifras-offline-main-1793816022';
+const CACHE_NAME = 'minhas-cifras-offline-main-1793817289';
 
 const CORE_ASSETS = [
   "./",
@@ -9,7 +9,6 @@ const CORE_ASSETS = [
   "/minhascifras-web",
   "/minhascifras-web/index.html",
   "flutter_bootstrap.js",
-  "version.json",
   "main.dart.js",
   "flutter.js",
   "favicon.png",
@@ -56,7 +55,6 @@ self.addEventListener('install', (event) => {
         'main.dart.js',
         'manifest.json',
         'favicon.png',
-        'version.json',
         'icons/Icon-192.png',
         'icons/Icon-512.png',
         'assets/FontManifest.json',
@@ -141,6 +139,18 @@ self.addEventListener('fetch', (event) => {
     url.origin.includes('youtube.com') ||
     url.origin.includes('youtu.be')
   ) {
+    return;
+  }
+
+  // Sempre busca version.json fresco da rede para detecção instantânea de novas versões
+  if (url.pathname.endsWith('version.json')) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' }).catch(() => {
+        return new Response('{"offline": true}', {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      })
+    );
     return;
   }
 
