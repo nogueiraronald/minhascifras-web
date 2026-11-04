@@ -33,12 +33,95 @@
 
   <title>Minhas Cifras</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #0e0f17;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    #loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 40%, #1e1f33 0%, #0e0f17 100%);
+      z-index: 99999;
+      transition: opacity 0.4s ease-out;
+      pointer-events: none;
+    }
+    .loading-logo {
+      width: 76px;
+      height: 76px;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(124, 77, 255, 0.4);
+      animation: pulse 2.2s infinite ease-in-out;
+    }
+    .loading-spinner {
+      margin-top: 24px;
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255, 255, 255, 0.12);
+      border-top-color: #9d4edd;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+    }
+    .loading-title {
+      margin-top: 16px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 0.5px;
+    }
+    .loading-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.06); opacity: 0.88; }
+    }
+  </style>
 </head>
 <body>
+  <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
+  <div id="loading-screen">
+    <img class="loading-logo" src="icons/Icon-192.png" alt="Minhas Cifras" />
+    <div class="loading-title">Minhas Cifras</div>
+    <div class="loading-spinner"></div>
+    <div class="loading-sub">Carregando repertório...</div>
+  </div>
+
+  <script>
+    function dismissLoadingScreen() {
+      var loader = document.getElementById('loading-screen');
+      if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(function() { loader.remove(); }, 400);
+      }
+    }
+    window.addEventListener('flutter-first-frame', dismissLoadingScreen);
+  </script>
+
   <!-- Service Worker para funcionamento 100% offline -->
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js?v=main-1793808551', { scope: './' })
+      navigator.serviceWorker.register('sw.js?v=main-1793809813', { scope: './' })
         .then(function(reg) {
           console.log('[MinhasCifras] Service Worker offline ativo:', reg.scope);
           if (reg.waiting) {
@@ -60,6 +143,6 @@
         });
     }
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script src="flutter_bootstrap.js" defer></script>
 </body>
 </html>
