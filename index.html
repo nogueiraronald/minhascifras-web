@@ -38,15 +38,7 @@
   <!-- Service Worker para funcionamento 100% offline -->
   <script>
     if ('serviceWorker' in navigator) {
-      var refreshing = false;
-      navigator.serviceWorker.addEventListener('controllerchange', function() {
-        if (!refreshing) {
-          refreshing = true;
-          window.location.reload();
-        }
-      });
-
-      navigator.serviceWorker.register('sw.js?v=main-1793804872', { scope: './' })
+      navigator.serviceWorker.register('sw.js?v=main-1793808551', { scope: './' })
         .then(function(reg) {
           console.log('[MinhasCifras] Service Worker offline ativo:', reg.scope);
           if (reg.waiting) {
@@ -58,9 +50,6 @@
               installing.onstatechange = function() {
                 if (installing.state === 'installed' && navigator.serviceWorker.controller) {
                   console.log('[MinhasCifras] Nova versão pronta em cache offline.');
-                  if (reg.waiting) {
-                    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                  }
                 }
               };
             }
