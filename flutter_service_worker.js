@@ -1,6 +1,6 @@
 // Service Worker para modo 100% offline do Minhas Cifras (PWA)
 // O nome do cache e a lista de assets são injetados automaticamente no deploy.
-const CACHE_NAME = 'minhas-cifras-offline-main-1793818631';
+const CACHE_NAME = 'minhas-cifras-offline-main-1793821854';
 
 const CORE_ASSETS = [
   "./",
@@ -131,14 +131,8 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Não intercepta chamadas de APIs externas ou streaming
-  if (
-    url.origin.includes('supabase.co') ||
-    url.origin.includes('googleapis.com') ||
-    url.origin.includes('googlevideo.com') ||
-    url.origin.includes('youtube.com') ||
-    url.origin.includes('youtu.be')
-  ) {
+  // 1. Ignora completamente qualquer requisição de origem externa (Supabase, YouTube, CDNs, etc.)
+  if (url.origin !== self.location.origin) {
     return;
   }
 
