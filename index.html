@@ -22,8 +22,9 @@
 
 
   <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Minhas Cifras">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
@@ -38,8 +39,9 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('sw.js', { scope: './' })
+        navigator.serviceWorker.register('sw.js?v=11', { scope: './' })
           .then(function(reg) {
+            reg.update();
             console.log('[MinhasCifras] Service Worker offline ativo:', reg.scope);
           })
           .catch(function(err) {
