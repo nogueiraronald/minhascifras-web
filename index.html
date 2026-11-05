@@ -121,7 +121,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1793821854';
+      window.minhasCifrasBuildVersion = 'main-1793838331';
       var swRegistration = null;
       var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
@@ -215,6 +215,49 @@
           }
         }, 10 * 60 * 1000);
       }
+
+      // --- Proteção contra Bloqueio de Tela (Screen Wake Lock API) ---
+      var wakeLockEnabled = true;
+      var wakeLockSentinel = null;
+
+      async function requestScreenWakeLock() {
+        if (!wakeLockEnabled) return;
+        if (!('wakeLock' in navigator)) return;
+        try {
+          if (wakeLockSentinel && !wakeLockSentinel.released) return;
+          wakeLockSentinel = await navigator.wakeLock.request('screen');
+          wakeLockSentinel.addEventListener('release', function() {
+            wakeLockSentinel = null;
+            if (wakeLockEnabled && document.visibilityState === 'visible') {
+              requestScreenWakeLock();
+            }
+          });
+        } catch (e) {}
+      }
+
+      window.setMinhasCifrasWakeLock = function(enable) {
+        wakeLockEnabled = !!enable;
+        if (wakeLockEnabled) {
+          requestScreenWakeLock();
+        } else if (wakeLockSentinel) {
+          try { wakeLockSentinel.release(); } catch (e) {}
+          wakeLockSentinel = null;
+        }
+      };
+
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible' && wakeLockEnabled) {
+          requestScreenWakeLock();
+        }
+      });
+      ['touchstart', 'pointerdown', 'click', 'keydown'].forEach(function(evt) {
+        document.addEventListener(evt, function() {
+          if (wakeLockEnabled && (!wakeLockSentinel || wakeLockSentinel.released)) {
+            requestScreenWakeLock();
+          }
+        }, { passive: true, capture: true });
+      });
+      requestScreenWakeLock();
     })();
   </script>
   <script src="flutter_bootstrap.js" defer></script>
