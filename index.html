@@ -143,23 +143,17 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794170442';
+      window.minhasCifrasBuildVersion = 'main-1794174198';
       var swRegistration = null;
       var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
       if ('serviceWorker' in navigator) {
         // Quando o novo Service Worker assumir o controle (activate + clients.claim):
         navigator.serviceWorker.addEventListener('controllerchange', function() {
-          console.log('[MinhasCifras] Novo Service Worker assumiu o controle.');
-          var pageAge = performance.now();
-          // Se o app acabou de abrir (primeiros 3.5 segundos), atualiza na hora sem incomodar o usuário
-          if (pageAge < 3500 && !hasReloadedThisSession) {
+          console.log('[MinhasCifras] Novo Service Worker assumiu o controle. Forçando atualização...');
+          if (!hasReloadedThisSession) {
             sessionStorage.setItem('mc_reloaded_for_update', 'true');
-            console.log('[MinhasCifras] Recarregando silenciosamente para versão atualizada...');
             window.location.reload();
-          } else {
-            // Marca para atualizar silenciosamente na próxima abertura
-            localStorage.setItem('mc_pending_update', 'true');
           }
         });
 
@@ -169,35 +163,25 @@
             swRegistration = reg;
             console.log('[MinhasCifras] Service Worker offline ativo:', reg.scope);
 
-            // Se havia atualização pendente da sessão anterior, ativa e recarrega
-            if (localStorage.getItem('mc_pending_update') === 'true') {
-              localStorage.removeItem('mc_pending_update');
-              if (reg.waiting) {
-                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-              }
-              if (!hasReloadedThisSession) {
-                sessionStorage.setItem('mc_reloaded_for_update', 'true');
-                window.location.reload();
-                return;
-              }
+            // Ativa qualquer worker em espera
+            if (reg.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
             }
 
             // Força verificação imediata na rede
             reg.update().catch(function() {});
-
-            if (reg.waiting) {
-              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-            }
 
             reg.onupdatefound = function() {
               var installing = reg.installing;
               if (installing) {
                 installing.onstatechange = function() {
                   if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-                    console.log('[MinhasCifras] Nova versão baixada silenciosamente.');
-                    localStorage.setItem('mc_pending_update', 'true');
-                    if (performance.now() < 3500 && !hasReloadedThisSession) {
+                    console.log('[MinhasCifras] Nova versão pronta. Forçando atualização...');
+                    if (!hasReloadedThisSession) {
                       sessionStorage.setItem('mc_reloaded_for_update', 'true');
+                      if (installing.postMessage) {
+                        installing.postMessage({ type: 'SKIP_WAITING' });
+                      }
                       window.location.reload();
                     }
                   }
@@ -229,6 +213,20 @@
         window.addEventListener('pageshow', checkForUpdatesOnResume);
         window.addEventListener('focus', checkForUpdatesOnResume);
         window.addEventListener('online', checkForUpdatesOnResume);
+
+        // Exposição para acionamento via Dart ao iniciar o app
+        window.forcarAtualizacaoPwa = function() {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistration().then(function(reg) {
+              if (reg) {
+                reg.update().catch(function() {});
+                if (reg.waiting) {
+                  reg.waiting.postMessage({type: 'SKIP_WAITING'});
+                }
+              }
+            }).catch(function() {});
+          }
+        };
 
         // Checagem periódica silenciosa a cada 10 minutos
         setInterval(function() {
