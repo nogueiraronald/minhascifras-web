@@ -1,6 +1,6 @@
 // Service Worker para modo 100% offline do Minhas Cifras (PWA)
 // O nome do cache e a lista de assets são injetados automaticamente no deploy.
-const CACHE_NAME = 'minhas-cifras-offline-main-1794158331';
+const CACHE_NAME = 'minhas-cifras-offline-main-1794159006';
 
 const CORE_ASSETS = [
   "./",
@@ -25,6 +25,9 @@ const CORE_ASSETS = [
   "assets/shaders/stretch_effect.frag",
   "assets/fonts/MaterialIcons-Regular.otf",
   "assets/assets/logo.png",
+  "assets/assets/fonts/Roboto-Medium.ttf",
+  "assets/assets/fonts/Roboto-Regular.ttf",
+  "assets/assets/fonts/Roboto-Bold.ttf",
   "canvaskit/wimp.wasm",
   "canvaskit/skwasm.js",
   "canvaskit/skwasm_heavy.js",
@@ -131,7 +134,32 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // 1. Ignora completamente qualquer requisição de origem externa (Supabase, YouTube, CDNs, etc.)
+  // Intercepta e protege requisições a fontes do Google (fonts.gstatic.com):
+  // Se offline, serve a fonte local Roboto do cache para nunca ficar sem texto/ícones!
+  if (url.origin === 'https://fonts.gstatic.com') {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(request);
+        if (cached) return cached;
+        try {
+          const networkRes = await fetch(request);
+          if (networkRes && networkRes.status === 200) {
+            cache.put(request, networkRes.clone());
+          }
+          return networkRes;
+        } catch (_) {
+          // Em modo offline, faz fallback para a fonte local Roboto já pré-cacheada
+          const fallback = await cache.match('assets/fonts/Roboto-Regular.ttf') ||
+                           await cache.match('/minhascifras-web/assets/fonts/Roboto-Regular.ttf');
+          if (fallback) return fallback;
+          return new Response('', { status: 404 });
+        }
+      })
+    );
+    return;
+  }
+
+  // 1. Ignora completamente qualquer outra requisição de origem externa (Supabase, YouTube, CDNs, etc.)
   if (url.origin !== self.location.origin) {
     return;
   }
