@@ -146,18 +146,14 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794234899';
+      window.minhasCifrasBuildVersion = 'main-1794235945';
       var swRegistration = null;
-      var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
       if ('serviceWorker' in navigator) {
         // Quando o novo Service Worker assumir o controle (activate + clients.claim):
         navigator.serviceWorker.addEventListener('controllerchange', function() {
-          console.log('[MinhasCifras] Novo Service Worker assumiu o controle. Forçando atualização...');
-          if (!hasReloadedThisSession) {
-            sessionStorage.setItem('mc_reloaded_for_update', 'true');
-            window.location.reload();
-          }
+          console.log('[MinhasCifras] Novo Service Worker assumiu o controle. Atualizando aplicação...');
+          window.location.reload();
         });
 
         // Registra o Service Worker com URL canônica e updateViaCache: 'none' (força bypass de HTTP cache)
@@ -179,14 +175,11 @@
               if (installing) {
                 installing.onstatechange = function() {
                   if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-                    console.log('[MinhasCifras] Nova versão pronta. Forçando atualização...');
-                    if (!hasReloadedThisSession) {
-                      sessionStorage.setItem('mc_reloaded_for_update', 'true');
-                      if (installing.postMessage) {
-                        installing.postMessage({ type: 'SKIP_WAITING' });
-                      }
-                      window.location.reload();
+                    console.log('[MinhasCifras] Nova versão instalada. Atualizando...');
+                    if (installing.postMessage) {
+                      installing.postMessage({ type: 'SKIP_WAITING' });
                     }
+                    window.location.reload();
                   }
                 };
               }
@@ -196,14 +189,34 @@
             console.warn('[MinhasCifras] Falha ao registrar Service Worker:', err);
           });
 
+        // Verificação imediata no version.json via fetch direto anti-cache
+        if (navigator.onLine) {
+          fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+              var serverBuild = (data.buildVersion || data.version || '').toString();
+              var lastKnown = localStorage.getItem('minhas_cifras_active_version') || '';
+              if (serverBuild && lastKnown && serverBuild !== lastKnown) {
+                console.log('[MinhasCifras] Nova versão no servidor:', serverBuild, 'vs local:', lastKnown);
+                localStorage.setItem('minhas_cifras_active_version', serverBuild);
+                if (swRegistration) {
+                  swRegistration.update().catch(function() {});
+                }
+                window.location.reload();
+              } else if (serverBuild && !lastKnown) {
+                localStorage.setItem('minhas_cifras_active_version', serverBuild);
+              }
+            })
+            .catch(function() {});
+        }
+
         // Recheca novas versões quando o usuário reabrir ou focar o app PWA
         function checkForUpdatesOnResume() {
           if (swRegistration && navigator.onLine) {
             swRegistration.update().catch(function() {});
           }
-          if (localStorage.getItem('mc_pending_update') === 'true' && !hasReloadedThisSession) {
+          if (localStorage.getItem('mc_pending_update') === 'true') {
             localStorage.removeItem('mc_pending_update');
-            sessionStorage.setItem('mc_reloaded_for_update', 'true');
             window.location.reload();
           }
         }

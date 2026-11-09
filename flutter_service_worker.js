@@ -1,6 +1,6 @@
 // Service Worker para modo 100% offline do Minhas Cifras (PWA)
 // O nome do cache e a lista de assets são injetados automaticamente no deploy.
-const CACHE_NAME = 'minhas-cifras-offline-main-1794234899';
+const CACHE_NAME = 'minhas-cifras-offline-main-1794235945';
 
 const CORE_ASSETS = [
   "./",
