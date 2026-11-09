@@ -1,6 +1,6 @@
 // Service Worker para modo 100% offline do Minhas Cifras (PWA)
 // O nome do cache e a lista de assets são injetados automaticamente no deploy.
-const CACHE_NAME = 'minhas-cifras-offline-main-1794243290';
+const CACHE_NAME = 'minhas-cifras-offline-main-1794245021';
 
 const CORE_ASSETS = [
   "./",
@@ -11,6 +11,7 @@ const CORE_ASSETS = [
   "flutter_bootstrap.js",
   "main.dart.js",
   "flutter.js",
+  "pedal-teste.html",
   "favicon.png",
   "manifest.json",
   "icons/Icon-192.png",

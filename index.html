@@ -122,7 +122,7 @@
 </head>
 <body tabindex="0">
   <!-- Sink invisível para manter canal de teclado Bluetooth ativo no Safari/iPadOS mesmo sem teclado físico -->
-  <input id="pedal-keyboard-sink" type="text" inputmode="none" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; bottom:0; right:0; width:2px; height:2px; opacity:0.02; border:none; outline:none; background:transparent; padding:0; margin:0; pointer-events:none;" />
+  <input id="pedal-keyboard-sink" type="text" inputmode="none" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:0; left:0; width:1px; height:1px; opacity:0.01; border:none; z-index:1000; background:transparent; padding:0; margin:0;" />
 
   <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
   <div id="loading-screen">
@@ -146,7 +146,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794243290';
+      window.minhasCifrasBuildVersion = 'main-1794245021';
       var swRegistration = null;
 
       if ('serviceWorker' in navigator) {
@@ -282,10 +282,24 @@
       };
 
       // --- Interceptador Universal de Pedal Bluetooth (M-VAVE VAVE368, PageFlip, AirTurn, Donner) ---
+      // Princípios:
+      //  1) Captura em window (fase capture) para keydown E keyup (fallback), sem depender de foco do Flutter.
+      //  2) NUNCA intercepta teclas quando o usuário digita em um campo de texto real (busca, login...).
+      //  3) Cada pressionamento físico gera no máximo UMA ação (dedupe por evento e por tempo).
+      //  4) O campo invisível "pedal-keyboard-sink" mantém o canal de teclado Bluetooth ativo no iPadOS.
       window.dispatchPedalAction = null;
       window._lastPedalDebug = '';
       var lastPedalTime = 0;
       var lastPedalAction = '';
+      var lastKeyDownAt = 0;
+
+      function isRealTextTarget(t) {
+        if (!t || t.id === 'pedal-keyboard-sink') return false;
+        var tag = (t.tagName || '').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+        if (t.isContentEditable) return true;
+        return false;
+      }
 
       function ensurePedalFocus() {
         var sink = document.getElementById('pedal-keyboard-sink');
@@ -293,9 +307,7 @@
         var active = document.activeElement;
         // Não rouba foco se o usuário estiver digitando em campo de texto real (busca, etc.)
         if (active && active !== sink && active !== document.body) {
-          var tag = (active.tagName || '').toUpperCase();
-          if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-          if (active.isContentEditable) return;
+          if (isRealTextTarget(active)) return;
           if (active.className && String(active.className).indexOf('flt-text-editing') !== -1) return;
         }
         if (document.activeElement !== sink) {
@@ -303,93 +315,100 @@
         }
       }
 
-      window.addEventListener('refocuspedal', function() {
-        ensurePedalFocus();
-      });
+      window.addEventListener('refocuspedal', ensurePedalFocus);
+
+      function mapPedalAction(key, code, keyCode) {
+        // Próxima Música (ArrowRight, Numpad 6, ']', KeyCode 39, 102, 221)
+        if (key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 39 || keyCode === 102 || keyCode === 221 || key === ']') return 'next';
+        // Música Anterior (ArrowLeft, Numpad 4, '[', KeyCode 37, 100, 219)
+        if (key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 37 || keyCode === 100 || keyCode === 219 || key === '[') return 'prev';
+        // Rolar para Baixo (PageDown, ArrowDown, Numpad 2/3, 'b')
+        if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 34 || keyCode === 40 || keyCode === 98 || keyCode === 99 || keyCode === 66 || key === 'b' || key === 'B') return 'down';
+        // Rolar para Cima (PageUp, ArrowUp, Numpad 8/9, 'w')
+        if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 33 || keyCode === 38 || keyCode === 104 || keyCode === 105 || keyCode === 87 || key === 'w' || key === 'W') return 'up';
+        // Espaço (Modo 4)
+        if (key === ' ' || code === 'Space' || keyCode === 32) return 'space';
+        // Enter (Modo 4)
+        if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || keyCode === 13) return 'enter';
+        return null;
+      }
+
+      function emitDebug(obj) {
+        obj.time = new Date().toLocaleTimeString();
+        var payload = JSON.stringify(obj);
+        window._lastPedalDebug = payload;
+        window.dispatchEvent(new CustomEvent('pedaldebug', { detail: payload }));
+      }
+
+      function fireAction(action, source, e) {
+        var now = Date.now();
+        var debounceMs = (action === 'down' || action === 'up') ? 200 : 500;
+        if ((now - lastPedalTime) < debounceMs) {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          return;
+        }
+        lastPedalTime = now;
+        lastPedalAction = action;
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        var sinkEl = document.getElementById('pedal-keyboard-sink');
+        if (sinkEl) sinkEl.value = '';
+        window.dispatchEvent(new CustomEvent('pedalaction', { detail: action }));
+        setTimeout(ensurePedalFocus, 50);
+      }
 
       function processKeyEvent(e) {
+        if (e.__mcHandled) return;
+        e.__mcHandled = true;
+
+        // Digitação em campo de texto real: não interceptar NADA (permite digitar b, w, espaço, setas...)
+        if (isRealTextTarget(e.target)) return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+
         var key = e.key || '';
         var code = e.code || '';
         var keyCode = e.keyCode || e.which || 0;
-        var action = null;
+        var isUp = e.type === 'keyup';
+        var action = mapPedalAction(key, code, keyCode);
 
-        // Próxima Música (Modo 1 M-Vave ⇆: ArrowRight, Numpad 6, Chave ']', KeyCode 39, 102, 221)
-        if (key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 39 || keyCode === 102 || keyCode === 221 || key === ']') {
-          action = 'next';
-        }
-        // Música Anterior (Modo 1 M-Vave ⇆: ArrowLeft, Numpad 4, Chave '[', KeyCode 37, 100, 219)
-        else if (key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 37 || keyCode === 100 || keyCode === 219 || key === '[') {
-          action = 'prev';
-        }
-        // Rolar para Baixo (Modo 2 ou 3: PageDown, ArrowDown, Numpad 2/3, Tecla 'b', KeyCode 34, 40, 98, 99, 66)
-        else if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 34 || keyCode === 40 || keyCode === 98 || keyCode === 99 || keyCode === 66 || key === 'b' || key === 'B') {
-          action = 'down';
-        }
-        // Rolar para Cima (Modo 2 ou 3: PageUp, ArrowUp, Numpad 8/9, Tecla 'w', KeyCode 33, 38, 104, 105, 87)
-        else if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 33 || keyCode === 38 || keyCode === 104 || keyCode === 105 || keyCode === 87 || key === 'w' || key === 'W') {
-          action = 'up';
-        }
-        // Espaço (Modo 4: KeyCode 32)
-        else if (key === ' ' || code === 'Space' || keyCode === 32) {
-          action = 'space';
-        }
-        // Enter (Modo 4: KeyCode 13)
-        else if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || keyCode === 13) {
-          action = 'enter';
+        if (isUp) {
+          // keyup só vale como fallback quando o keydown correspondente NUNCA chegou (alguns HID do iOS)
+          if (!action || (Date.now() - lastKeyDownAt) < 900) return;
+        } else {
+          lastKeyDownAt = Date.now();
         }
 
-        var now = Date.now();
-        var debugObj = {
-          type: 'key',
-          key: key,
-          code: code,
-          keyCode: keyCode,
-          action: action || 'nenhuma',
-          time: new Date().toLocaleTimeString()
-        };
-        var debugPayload = JSON.stringify(debugObj);
-        window._lastPedalDebug = debugPayload;
-        window.dispatchEvent(new CustomEvent('pedaldebug', { detail: debugPayload }));
-
-        if (action) {
-          var debounceMs = (action === 'down' || action === 'up') ? 200 : 500;
-          if ((now - lastPedalTime) < debounceMs) {
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-          }
-          lastPedalTime = now;
-          lastPedalAction = action;
-
-          e.preventDefault();
-          e.stopPropagation();
-          var sinkEl = document.getElementById('pedal-keyboard-sink');
-          if (sinkEl) sinkEl.value = '';
-          window.dispatchEvent(new CustomEvent('pedalaction', { detail: action }));
-          setTimeout(ensurePedalFocus, 50);
-        }
+        emitDebug({ type: e.type, key: key, code: code, keyCode: keyCode, action: action || 'nenhuma' });
+        if (action) fireAction(action, e.type, e);
       }
 
-      // Escuta tanto em window quanto diretamente no sink para captura contínua no Safari
-      window.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
+      // Escuta em window e document (capture) para keydown e keyup
+      ['keydown', 'keyup'].forEach(function(evt) {
+        window.addEventListener(evt, processKeyEvent, { capture: true, passive: false });
+        document.addEventListener(evt, processKeyEvent, { capture: true, passive: false });
+      });
+
       var sinkEl = document.getElementById('pedal-keyboard-sink');
       if (sinkEl) {
-        sinkEl.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
         sinkEl.addEventListener('blur', function() {
           var active = document.activeElement;
-          if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.id !== 'pedal-keyboard-sink') return;
-          if (active && active.isContentEditable) return;
+          if (active && active !== sinkEl && isRealTextTarget(active)) return;
           try { sinkEl.focus({ preventScroll: true }); } catch (e) {}
         });
-        sinkEl.addEventListener('input', function() {
+        // Fallback: alguns pedais chegam apenas como texto digitado ("b", "w", "[", "]", " ")
+        sinkEl.addEventListener('input', function(ev) {
+          var data = (ev && ev.data) || sinkEl.value || '';
           sinkEl.value = '';
+          if (!data) return;
+          var ch = data.slice(-1);
+          var action = mapPedalAction(ch, '', 0);
+          emitDebug({ type: 'input', key: ch, code: '', keyCode: 0, action: action || 'nenhuma' });
+          if (action) fireAction(action, 'input', null);
         });
       }
 
       window.addEventListener('focusout', function() {
         var active = document.activeElement;
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.id !== 'pedal-keyboard-sink') return;
-        if (active && active.isContentEditable) return;
+        if (isRealTextTarget(active)) return;
         var s = document.getElementById('pedal-keyboard-sink');
         if (s && document.activeElement !== s) {
           try { s.focus({ preventScroll: true }); } catch (e) {}
@@ -402,54 +421,40 @@
         }
       }, 800);
 
-      // Suporte ao Modo Mouse do M-VAVE (Modo 4):
-      // Botão Direito do mouse (contextmenu / button === 2) -> Próxima Música
+      // Suporte ao Modo Mouse do M-VAVE (Modo 4): botão direito -> Próxima, botão do meio/lateral -> Anterior/Próxima
       window.addEventListener('contextmenu', function(e) {
-        var active = document.activeElement;
-        var tag = active ? (active.tagName || '').toUpperCase() : '';
-        if ((tag === 'INPUT' && active.id !== 'pedal-keyboard-sink') || tag === 'TEXTAREA') return;
-
-        var debugObj = {
-          type: 'mouse_context',
-          button: 2,
-          action: 'next',
-          time: new Date().toLocaleTimeString()
-        };
-        var debugPayload = JSON.stringify(debugObj);
-        window._lastPedalDebug = debugPayload;
-        window.dispatchEvent(new CustomEvent('pedaldebug', { detail: debugPayload }));
-
+        if (isRealTextTarget(e.target)) return;
+        emitDebug({ type: 'mouse_context', key: '', code: '', keyCode: 0, action: 'next' });
         e.preventDefault();
         e.stopPropagation();
-        window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'next' }));
+        fireAction('next', 'contextmenu', null);
       }, { capture: true, passive: false });
 
       window.addEventListener('auxclick', function(e) {
-        if (e.button === 1) { // Middle click -> Música Anterior
-          e.preventDefault();
-          e.stopPropagation();
-          window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'prev' }));
-        } else if (e.button === 3) {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'prev' }));
-        } else if (e.button === 4) {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'next' }));
-        }
+        var action = null;
+        if (e.button === 1 || e.button === 3) action = 'prev';
+        else if (e.button === 4) action = 'next';
+        if (!action) return;
+        e.preventDefault();
+        e.stopPropagation();
+        emitDebug({ type: 'mouse_aux', key: '', code: '', keyCode: e.button, action: action });
+        fireAction(action, 'auxclick', null);
       }, { capture: true, passive: false });
 
+      // Reassume o canal do pedal sempre que o app volta ao primeiro plano
       document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible' && wakeLockEnabled) {
-          requestScreenWakeLock();
+        if (document.visibilityState === 'visible') {
+          if (wakeLockEnabled) requestScreenWakeLock();
           ensurePedalFocus();
         }
       });
+      window.addEventListener('pageshow', ensurePedalFocus);
+      window.addEventListener('focus', ensurePedalFocus);
 
-      ['touchend', 'click', 'pointerup', 'keydown'].forEach(function(evt) {
+      // Gestos do usuário são o único momento em que o iOS permite focar o campo: aproveitamos todos
+      ['touchstart', 'touchend', 'click', 'pointerup'].forEach(function(evt) {
         document.addEventListener(evt, function(e) {
-          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target.id !== 'pedal-keyboard-sink') {
-            return;
-          }
+          if (isRealTextTarget(e.target)) return;
           ensurePedalFocus();
           if (wakeLockEnabled && (!wakeLockSentinel || wakeLockSentinel.released)) {
             requestScreenWakeLock();
