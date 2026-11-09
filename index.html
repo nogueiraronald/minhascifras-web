@@ -122,7 +122,7 @@
 </head>
 <body tabindex="0">
   <!-- Sink invisível para manter canal de teclado Bluetooth ativo no Safari/iPadOS mesmo sem teclado físico -->
-  <textarea id="pedal-keyboard-sink" readonly inputmode="none" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; bottom:0; right:0; width:1px; height:1px; opacity:0.01; border:none; z-index:1; background:transparent; resize:none; padding:0; margin:0; pointer-events:auto;"></textarea>
+  <input id="pedal-keyboard-sink" type="text" inputmode="none" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; bottom:0; right:0; width:1px; height:1px; opacity:0.01; border:none; z-index:1; background:transparent; padding:0; margin:0; pointer-events:none;" />
 
   <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
   <div id="loading-screen">
@@ -146,7 +146,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794231985';
+      window.minhasCifrasBuildVersion = 'main-1794233387';
       var swRegistration = null;
       var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
@@ -278,8 +278,12 @@
         var sink = document.getElementById('pedal-keyboard-sink');
         if (!sink) return;
         var active = document.activeElement;
-        // Não rouba foco se o usuário estiver digitando em campo de texto real
-        if (active && (active.tagName === 'TEXTAREA' && active.id !== 'pedal-keyboard-sink')) return;
+        // Não rouba foco se o usuário estiver digitando em campo de texto real (busca, etc.)
+        if (active && active !== sink && active !== document.body) {
+          if (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') return;
+          if (active.isContentEditable) return;
+          if (active.className && String(active.className).indexOf('flt-text-editing') !== -1) return;
+        }
         if (document.activeElement !== sink) {
           try { sink.focus({ preventScroll: true }); } catch (e) {}
         }
@@ -291,27 +295,27 @@
         var keyCode = e.keyCode || e.which || 0;
         var action = null;
 
-        // Próxima Música (Modo 2: ArrowRight, Numpad 6, Chave ']', KeyCode 39, 102, 221)
+        // Próxima Música (Modo 1 M-Vave ⇆: ArrowRight, Numpad 6, Chave ']', KeyCode 39, 102, 221)
         if (key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 39 || keyCode === 102 || keyCode === 221 || key === ']') {
           action = 'next';
         }
-        // Música Anterior (Modo 2: ArrowLeft, Numpad 4, Chave '[', KeyCode 37, 100, 219)
+        // Música Anterior (Modo 1 M-Vave ⇆: ArrowLeft, Numpad 4, Chave '[', KeyCode 37, 100, 219)
         else if (key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 37 || keyCode === 100 || keyCode === 219 || key === '[') {
           action = 'prev';
         }
-        // Rolar para Baixo (Modo 1 ou 3: PageDown, ArrowDown, Numpad 2/3, Tecla 'b', KeyCode 34, 40, 98, 99, 66)
+        // Rolar para Baixo (Modo 2 ou 3: PageDown, ArrowDown, Numpad 2/3, Tecla 'b', KeyCode 34, 40, 98, 99, 66)
         else if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 34 || keyCode === 40 || keyCode === 98 || keyCode === 99 || keyCode === 66 || key === 'b' || key === 'B') {
           action = 'down';
         }
-        // Rolar para Cima (Modo 1 ou 3: PageUp, ArrowUp, Numpad 8/9, Tecla 'w', KeyCode 33, 38, 104, 105, 87)
+        // Rolar para Cima (Modo 2 ou 3: PageUp, ArrowUp, Numpad 8/9, Tecla 'w', KeyCode 33, 38, 104, 105, 87)
         else if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 33 || keyCode === 38 || keyCode === 104 || keyCode === 105 || keyCode === 87 || key === 'w' || key === 'W') {
           action = 'up';
         }
-        // Espaço (Modo 5: KeyCode 32)
+        // Espaço (Modo 4: KeyCode 32)
         else if (key === ' ' || code === 'Space' || keyCode === 32) {
           action = 'space';
         }
-        // Enter (Modo 5: KeyCode 13)
+        // Enter (Modo 4: KeyCode 13)
         else if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || keyCode === 13) {
           action = 'enter';
         }
@@ -330,9 +334,8 @@
         window.dispatchEvent(new CustomEvent('pedaldebug', { detail: debugPayload }));
 
         if (action) {
-          // Debounce estrito de 500ms contra repetições de hardware (como Continue Sending - CS do M-VAVE):
-          // Garante avanço e retrocesso estritamente de 1 em 1 música!
-          if ((now - lastPedalTime) < 500) {
+          var debounceMs = (action === 'down' || action === 'up') ? 200 : 500;
+          if ((now - lastPedalTime) < debounceMs) {
             e.preventDefault();
             e.stopPropagation();
             return;
@@ -342,7 +345,10 @@
 
           e.preventDefault();
           e.stopPropagation();
+          var sinkEl = document.getElementById('pedal-keyboard-sink');
+          if (sinkEl) sinkEl.value = '';
           window.dispatchEvent(new CustomEvent('pedalaction', { detail: action }));
+          setTimeout(ensurePedalFocus, 50);
         }
       }
 
@@ -351,7 +357,19 @@
       var sinkEl = document.getElementById('pedal-keyboard-sink');
       if (sinkEl) {
         sinkEl.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
+        sinkEl.addEventListener('blur', function() {
+          setTimeout(ensurePedalFocus, 50);
+        });
+        sinkEl.addEventListener('input', function() {
+          sinkEl.value = '';
+        });
       }
+
+      setInterval(function() {
+        if (!document.activeElement || document.activeElement === document.body) {
+          ensurePedalFocus();
+        }
+      }, 1000);
 
       // Suporte ao Modo Mouse do M-VAVE (Modo 4):
       // Botão Direito do mouse (contextmenu / button === 2) -> Próxima Música
