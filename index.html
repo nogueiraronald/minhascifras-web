@@ -120,7 +120,10 @@
     }
   </style>
 </head>
-<body>
+<body tabindex="0">
+  <!-- Input oculto para manter canal de teclado Bluetooth ativo no Safari/iPadOS sem abrir teclado virtual -->
+  <input id="pedal-keyboard-sink" type="text" inputmode="none" tabindex="-1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:-200px; left:-200px; width:1px; height:1px; opacity:0.001; pointer-events:none; border:none; z-index:-10;" />
+
   <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
   <div id="loading-screen">
     <img class="loading-logo" src="icons/Icon-192.png" alt="Minhas Cifras" />
@@ -143,7 +146,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794227437';
+      window.minhasCifrasBuildVersion = 'main-1794228876';
       var swRegistration = null;
       var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
@@ -265,52 +268,135 @@
         }
       };
 
-      // --- Interceptador Universal de Pedal Bluetooth (M-VAVE, PageFlip, AirTurn, Donner) ---
+      // --- Interceptador Universal de Pedal Bluetooth (M-VAVE VAVE368, PageFlip, AirTurn, Donner) ---
       window.dispatchPedalAction = null;
+      window._lastPedalDebug = '';
 
-      window.addEventListener('keydown', function(e) {
+      function ensurePedalFocus() {
         var active = document.activeElement;
         var tag = active ? (active.tagName || '').toUpperCase() : '';
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) {
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && (!active || !active.isContentEditable)) {
+          var sink = document.getElementById('pedal-keyboard-sink');
+          if (sink && document.activeElement !== sink) {
+            try { sink.focus({ preventScroll: true }); } catch (e) {}
+          }
+        }
+      }
+
+      function processKeyEvent(e) {
+        var active = document.activeElement;
+        var tag = active ? (active.tagName || '').toUpperCase() : '';
+        if ((tag === 'INPUT' && active.id !== 'pedal-keyboard-sink') || tag === 'TEXTAREA' || (active && active.isContentEditable)) {
           return;
         }
 
         var key = e.key || '';
         var code = e.code || '';
+        var keyCode = e.keyCode || e.which || 0;
         var action = null;
 
-        if (key === 'ArrowRight' || code === 'ArrowRight' || code === 'Numpad6' || key === ']') {
+        // Próxima Música (Modo 2: ArrowRight, Numpad 6, Chave ']', KeyCode 39, 102, 221)
+        if (key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 39 || keyCode === 102 || keyCode === 221 || key === ']') {
           action = 'next';
-        } else if (key === 'ArrowLeft' || code === 'ArrowLeft' || code === 'Numpad4' || key === '[') {
+        }
+        // Música Anterior (Modo 2: ArrowLeft, Numpad 4, Chave '[', KeyCode 37, 100, 219)
+        else if (key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 37 || keyCode === 100 || keyCode === 219 || key === '[') {
           action = 'prev';
-        } else if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || code === 'Numpad2' || code === 'Numpad3' || key === 'b' || key === 'B') {
+        }
+        // Rolar para Baixo (Modo 1 ou 3: PageDown, ArrowDown, Numpad 2/3, Tecla 'b', KeyCode 34, 40, 98, 99, 66)
+        else if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 34 || keyCode === 40 || keyCode === 98 || keyCode === 99 || keyCode === 66 || key === 'b' || key === 'B') {
           action = 'down';
-        } else if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || code === 'Numpad8' || code === 'Numpad9' || key === 'w' || key === 'W') {
+        }
+        // Rolar para Cima (Modo 1 ou 3: PageUp, ArrowUp, Numpad 8/9, Tecla 'w', KeyCode 33, 38, 104, 105, 87)
+        else if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 33 || keyCode === 38 || keyCode === 104 || keyCode === 105 || keyCode === 87 || key === 'w' || key === 'W') {
           action = 'up';
-        } else if (key === ' ' || code === 'Space') {
+        }
+        // Espaço (Modo 5: KeyCode 32)
+        else if (key === ' ' || code === 'Space' || keyCode === 32) {
           action = 'space';
-        } else if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter') {
+        }
+        // Enter (Modo 5: KeyCode 13)
+        else if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || keyCode === 13) {
           action = 'enter';
         }
+
+        var debugObj = {
+          type: 'key',
+          key: key,
+          code: code,
+          keyCode: keyCode,
+          action: action || 'nenhuma',
+          time: new Date().toLocaleTimeString()
+        };
+        var debugPayload = JSON.stringify(debugObj);
+        window._lastPedalDebug = debugPayload;
+        window.dispatchEvent(new CustomEvent('pedaldebug', { detail: debugPayload }));
 
         if (action) {
           e.preventDefault();
           e.stopPropagation();
           window.dispatchEvent(new CustomEvent('pedalaction', { detail: action }));
         }
+      }
+
+      window.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
+      document.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
+
+      // Suporte ao Modo Mouse do M-VAVE (Modo 4):
+      // Botão Direito do mouse (contextmenu / button === 2) -> Próxima Música
+      window.addEventListener('contextmenu', function(e) {
+        var active = document.activeElement;
+        var tag = active ? (active.tagName || '').toUpperCase() : '';
+        if ((tag === 'INPUT' && active.id !== 'pedal-keyboard-sink') || tag === 'TEXTAREA') return;
+
+        var debugObj = {
+          type: 'mouse_context',
+          button: 2,
+          action: 'next',
+          time: new Date().toLocaleTimeString()
+        };
+        var debugPayload = JSON.stringify(debugObj);
+        window._lastPedalDebug = debugPayload;
+        window.dispatchEvent(new CustomEvent('pedaldebug', { detail: debugPayload }));
+
+        e.preventDefault();
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'next' }));
+      }, { capture: true, passive: false });
+
+      window.addEventListener('auxclick', function(e) {
+        if (e.button === 1) { // Middle click -> Música Anterior
+          e.preventDefault();
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'prev' }));
+        } else if (e.button === 3) {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'prev' }));
+        } else if (e.button === 4) {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('pedalaction', { detail: 'next' }));
+        }
       }, { capture: true, passive: false });
 
       document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'visible' && wakeLockEnabled) {
           requestScreenWakeLock();
+          ensurePedalFocus();
         }
       });
+
       ['touchstart', 'pointerdown', 'click', 'keydown'].forEach(function(evt) {
         document.addEventListener(evt, function() {
+          ensurePedalFocus();
           if (wakeLockEnabled && (!wakeLockSentinel || wakeLockSentinel.released)) {
             requestScreenWakeLock();
           }
         }, { passive: true, capture: true });
+      });
+
+      setTimeout(ensurePedalFocus, 800);
+      window.addEventListener('flutter-first-frame', function() {
+        setTimeout(ensurePedalFocus, 300);
       });
       requestScreenWakeLock();
     })();
