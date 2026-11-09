@@ -146,7 +146,35 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794245021';
+      window.minhasCifrasBuildVersion = 'main-1794245657';
+
+      // Atualização "de verdade": remove Service Workers e caches e recarrega da rede.
+      window.mcHardUpdate = function() {
+        var tasks = [];
+        try {
+          if ('serviceWorker' in navigator) {
+            tasks.push(navigator.serviceWorker.getRegistrations().then(function(rs) {
+              return Promise.all(rs.map(function(r) { return r.unregister(); }));
+            }));
+          }
+          if (window.caches) {
+            tasks.push(caches.keys().then(function(ks) {
+              return Promise.all(ks.map(function(k) { return caches.delete(k); }));
+            }));
+          }
+        } catch (e) {}
+        return Promise.all(tasks).catch(function() {}).then(function() {
+          window.location.replace(window.location.pathname + '?v=' + Date.now() + window.location.hash);
+        });
+      };
+      // Remove o parâmetro ?v= da URL depois de recarregar
+      if (window.location.search.indexOf('v=') >= 0) {
+        try { history.replaceState(null, '', window.location.pathname + window.location.hash); } catch (e) {}
+      }
+      window.mcRunningBuild = function() {
+        var v = (window.minhasCifrasBuildVersion || '').toString();
+        return v.indexOf('__') === 0 ? '' : v;
+      };
       var swRegistration = null;
 
       if ('serviceWorker' in navigator) {
@@ -189,22 +217,21 @@
             console.warn('[MinhasCifras] Falha ao registrar Service Worker:', err);
           });
 
-        // Verificação imediata no version.json via fetch direto anti-cache
+        // Verificação imediata no version.json: compara com a versão realmente em execução
         if (navigator.onLine) {
           fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
             .then(function(res) { return res.json(); })
             .then(function(data) {
               var serverBuild = (data.buildVersion || data.version || '').toString();
-              var lastKnown = localStorage.getItem('minhas_cifras_active_version') || '';
-              if (serverBuild && lastKnown && serverBuild !== lastKnown) {
-                console.log('[MinhasCifras] Nova versão no servidor:', serverBuild, 'vs local:', lastKnown);
-                localStorage.setItem('minhas_cifras_active_version', serverBuild);
-                if (swRegistration) {
-                  swRegistration.update().catch(function() {});
+              var running = window.mcRunningBuild();
+              if (serverBuild && running && serverBuild !== running) {
+                // Evita laço de recarga: tenta no máximo uma vez por versão de servidor
+                var tried = sessionStorage.getItem('mc_auto_update_for');
+                if (tried !== serverBuild) {
+                  sessionStorage.setItem('mc_auto_update_for', serverBuild);
+                  console.log('[MinhasCifras] Nova versão:', serverBuild, 'em execução:', running);
+                  window.mcHardUpdate();
                 }
-                window.location.reload();
-              } else if (serverBuild && !lastKnown) {
-                localStorage.setItem('minhas_cifras_active_version', serverBuild);
               }
             })
             .catch(function() {});

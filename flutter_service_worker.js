@@ -1,6 +1,6 @@
 // Service Worker para modo 100% offline do Minhas Cifras (PWA)
 // O nome do cache e a lista de assets são injetados automaticamente no deploy.
-const CACHE_NAME = 'minhas-cifras-offline-main-1794245021';
+const CACHE_NAME = 'minhas-cifras-offline-main-1794245657';
 
 const CORE_ASSETS = [
   "./",
@@ -181,6 +181,24 @@ self.addEventListener('fetch', (event) => {
   // Estratégia: Stale-While-Revalidate com Cache Prioritário quando offline
   const isNavigate = request.mode === 'navigate' ||
                      (request.headers.get('accept') && request.headers.get('accept').includes('text/html'));
+
+  // Apenas a raiz do app (escopo) e o index.html são o "app shell".
+  // Outras páginas HTML estáticas (ex.: pedal-teste.html) NÃO podem ser trocadas pelo app
+  // nem sobrescrever o index.html guardado em cache.
+  const scopePath = new URL('./', self.registration.scope).pathname;
+  const isAppShell = url.pathname === scopePath ||
+                     url.pathname === scopePath.replace(/\/$/, '') ||
+                     url.pathname.endsWith('/index.html');
+
+  if (isNavigate && !isAppShell) {
+    event.respondWith(
+      fetch(request).catch(async () => {
+        const cached = await caches.match(request, { ignoreSearch: true });
+        return cached || new Response('Offline', { status: 503 });
+      })
+    );
+    return;
+  }
 
   if (isNavigate) {
     event.respondWith(
