@@ -122,7 +122,7 @@
 </head>
 <body tabindex="0">
   <!-- Receptor de texto oculto com "Teste" e cursor no meio ("Te|ste", índice 2) para capturar pedais Bluetooth no iPadOS (Safari e PWA) mesmo sem teclado físico -->
-  <input id="pedal-keyboard-sink" type="text" inputmode="none" value="Teste" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:0; left:0; width:1px; height:1px; font-size:16px; opacity:0.01; color:transparent; background:transparent; border:none; outline:none; z-index:1000; pointer-events:none; padding:0; margin:0;" />
+  <input id="pedal-keyboard-sink" type="text" inputmode="none" value="Teste" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:0; left:0; width:1px; height:1px; font-size:16px; opacity:0.01; border:none; outline:none; z-index:1000; background:transparent; padding:0; margin:0;" />
 
   <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
   <div id="loading-screen">
@@ -146,7 +146,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794249246';
+      window.minhasCifrasBuildVersion = 'main-1794250027';
 
       // Atualização "de verdade": remove Service Workers e caches e recarrega da rede.
       window.mcHardUpdate = function() {
@@ -309,15 +309,16 @@
       };
 
       // --- Interceptador Universal de Pedal Bluetooth (M-VAVE VAVE368, PageFlip, AirTurn, Donner) ---
-      // Solução definitiva para iPadOS (Safari e PWA instalado) sem teclado físico:
-      //  1) Mantém o receptor #pedal-keyboard-sink focado com o texto "Teste" e cursor na posição 2 ("Te|ste").
-      //  2) No iPadOS sem teclado físico, o pedal M-VAVE move o cursor de texto nativo (UITextInput) ou envia keydown:
+      // Solução definitiva para iPadOS (Safari e PWA instalado) e teclados físicos:
+      //  1) Mantém o receptor #pedal-keyboard-sink com o texto "Teste" e cursor na posição 2 ("Te|ste").
+      //  2) NUNCA sobrescreve HTMLElement.prototype.focus/blur nem usa stopImmediatePropagation,
+      //     permitindo que o <flt-glass-pane> e o HardwareKeyboard nativo do Flutter também recebam
+      //     teclas normalmente (teclado físico e Bluetooth HID).
+      //  3) No iPadOS sem teclado físico (modo PWA standalone), se o pedal mover o cursor nativo:
       //     - Voltar música (←): cursor vai de 2 para 1 ("T|este") -> 'prev'
       //     - Próxima música (→): cursor vai de 2 para 3 ("Tes|te") -> 'next'
       //     - Subir cifra (↑): cursor vai de 2 para 0 ("|Teste") -> 'up'
       //     - Descer cifra (↓): cursor vai de 2 para 5 ("Teste|") -> 'down'
-      //  3) O estado window.__mcEditingText é controlado diretamente pelo FocusManager do Flutter (Dart),
-      //     garantindo que <flt-glass-pane> ou um .flt-text-editing residual NUNCA bloqueiem o pedal.
       window.dispatchPedalAction = null;
       window._lastPedalDebug = '';
       window.__mcEditingText = false;
@@ -326,23 +327,9 @@
       var resettingSink = false;
       var lastPedalTime = 0;
       var lastPedalAction = '';
-      var lastKeyDownAt = 0;
-
-      var origFocus = HTMLElement.prototype.focus;
-      var origBlur = HTMLElement.prototype.blur;
 
       function getSink() {
         return document.getElementById('pedal-keyboard-sink');
-      }
-
-      function isFlutterCanvasOrBody(el) {
-        if (!el) return true;
-        if (el === document.body || el === document.documentElement) return true;
-        var tag = (el.tagName || '').toUpperCase();
-        if (tag === 'FLT-GLASS-PANE' || tag === 'FLUTTER-VIEW' || tag === 'FLT-SCENE-HOST' || tag === 'CANVAS') {
-          return true;
-        }
-        return false;
       }
 
       function resetSinkCaret() {
@@ -360,31 +347,6 @@
         resettingSink = false;
       }
 
-      // Redireciona chamadas de foco do canvas do Flutter (<flt-glass-pane>) para o #pedal-keyboard-sink
-      HTMLElement.prototype.focus = function(options) {
-        var sink = getSink();
-        if (this === sink) {
-          return origFocus.call(this, options);
-        }
-        if (isFlutterCanvasOrBody(this) && sink && !window.__mcEditingText) {
-          try {
-            origFocus.call(sink, { preventScroll: true });
-            resetSinkCaret();
-            return;
-          } catch (e) {}
-        }
-        return origFocus.call(this, options);
-      };
-
-      HTMLElement.prototype.blur = function() {
-        var sink = getSink();
-        if (this === sink && !window.__mcEditingText) {
-          resetSinkCaret();
-          return;
-        }
-        return origBlur.call(this);
-      };
-
       function ensurePedalFocus(forceEndEdit) {
         var sink = getSink();
         if (!sink) return;
@@ -396,7 +358,7 @@
         }
         try {
           if (document.activeElement !== sink) {
-            origFocus.call(sink, { preventScroll: true });
+            sink.focus({ preventScroll: true });
           }
           resetSinkCaret();
         } catch (e) {}
@@ -406,19 +368,21 @@
         ensurePedalFocus(true);
       });
 
-      function mapPedalAction(key, code, keyCode) {
+      function mapPedalAction(key, code, keyCode, isEditing) {
         // Próxima Música (ArrowRight, Numpad 6, ']', KeyCode 39, 102, 221)
-        if (key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 39 || keyCode === 102 || keyCode === 221 || key === ']') return 'next';
+        if (key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 39 || keyCode === 102 || keyCode === 221 || (!isEditing && key === ']')) return 'next';
         // Música Anterior (ArrowLeft, Numpad 4, '[', KeyCode 37, 100, 219)
-        if (key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 37 || keyCode === 100 || keyCode === 219 || key === '[') return 'prev';
+        if (key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 37 || keyCode === 100 || keyCode === 219 || (!isEditing && key === '[')) return 'prev';
         // Rolar para Baixo (PageDown, ArrowDown, Numpad 2/3, 'b')
-        if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 34 || keyCode === 40 || keyCode === 98 || keyCode === 99 || keyCode === 66 || key === 'b' || key === 'B') return 'down';
+        if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 34 || keyCode === 40 || keyCode === 98 || keyCode === 99 || (!isEditing && (keyCode === 66 || key === 'b' || key === 'B'))) return 'down';
         // Rolar para Cima (PageUp, ArrowUp, Numpad 8/9, 'w')
-        if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 33 || keyCode === 38 || keyCode === 104 || keyCode === 105 || keyCode === 87 || key === 'w' || key === 'W') return 'up';
-        // Espaço (Modo 4)
-        if (key === ' ' || code === 'Space' || keyCode === 32) return 'space';
-        // Enter (Modo 4)
-        if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || keyCode === 13) return 'enter';
+        if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 33 || keyCode === 38 || keyCode === 104 || keyCode === 105 || (!isEditing && (keyCode === 87 || key === 'w' || key === 'W'))) return 'up';
+        if (!isEditing) {
+          // Espaço (Modo 4)
+          if (key === ' ' || code === 'Space' || keyCode === 32) return 'space';
+          // Enter (Modo 4)
+          if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || keyCode === 13) return 'enter';
+        }
         return null;
       }
 
@@ -435,8 +399,6 @@
         if ((now - lastPedalTime) < debounceMs) {
           if (e) {
             e.preventDefault();
-            e.stopPropagation();
-            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           }
           resetSinkCaret();
           return;
@@ -445,12 +407,11 @@
         lastPedalAction = action;
         if (e) {
           e.preventDefault();
-          e.stopPropagation();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         }
         resetSinkCaret();
+        window.__mcLastAction = action;
         window.dispatchEvent(new CustomEvent('pedalaction', { detail: action }));
-        setTimeout(function() { ensurePedalFocus(false); }, 30);
+        setTimeout(function() { ensurePedalFocus(false); }, 40);
       }
 
       // Detecta o movimento do cursor no texto "Teste" (idêntico ao app Notas do iPadOS):
@@ -492,26 +453,18 @@
       document.addEventListener('selectionchange', checkSinkSelection);
 
       function processKeyEvent(e) {
-        if (e.__mcHandled) return;
-        e.__mcHandled = true;
-
-        // Só ignora se o usuário estiver ativamente digitando em um campo de busca/texto do Flutter
-        if (window.__mcEditingText === true) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
 
+        var isEditing = (window.__mcEditingText === true);
         var key = e.key || '';
         var code = e.code || '';
         var keyCode = e.keyCode || e.which || 0;
-        var isUp = e.type === 'keyup';
-        var action = mapPedalAction(key, code, keyCode);
 
+        // Se o usuário está digitando em campo de busca, permite que setas movam o cursor da busca
+        if (isEditing) return;
+
+        var action = mapPedalAction(key, code, keyCode, isEditing);
         setTimeout(checkSinkSelection, 0);
-
-        if (isUp) {
-          if (!action || (Date.now() - lastKeyDownAt) < 900) return;
-        } else {
-          lastKeyDownAt = Date.now();
-        }
 
         emitDebug({ type: e.type, key: key, code: code, keyCode: keyCode, action: action || 'nenhuma' });
         if (action) {
@@ -519,11 +472,8 @@
         }
       }
 
-      // Escuta em window e document (capture) para keydown e keyup
-      ['keydown', 'keyup'].forEach(function(evt) {
-        window.addEventListener(evt, processKeyEvent, { capture: true, passive: false });
-        document.addEventListener(evt, processKeyEvent, { capture: true, passive: false });
-      });
+      // Escuta em window e diretamente no sink (mesma arquitetura comprovada na v51)
+      window.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
 
       var sinkEl = getSink();
       if (sinkEl) {
@@ -540,7 +490,7 @@
           resetSinkCaret();
           if (!data) return;
           var ch = data.slice(-1);
-          var action = mapPedalAction(ch, '', 0);
+          var action = mapPedalAction(ch, '', 0, false);
           emitDebug({ type: 'input', key: ch, code: '', keyCode: 0, action: action || 'nenhuma' });
           if (action) fireAction(action, 'input', null);
         });
@@ -581,29 +531,26 @@
       window.addEventListener('pageshow', function() { ensurePedalFocus(false); });
       window.addEventListener('focus', function() { ensurePedalFocus(false); });
 
-      // Em touchend / pointerup / click (fase capture, exatamente onde o iOS WebKit autoriza .focus() sem afetar touchstart):
-      ['touchend', 'pointerup', 'click', 'keydown'].forEach(function(evt) {
+      ['touchend', 'click', 'pointerup', 'keydown'].forEach(function(evt) {
         document.addEventListener(evt, function() {
           if (wakeLockEnabled && (!wakeLockSentinel || wakeLockSentinel.released)) {
             requestScreenWakeLock();
           }
           if (!window.__mcEditingText) {
             ensurePedalFocus(false);
-            setTimeout(function() { ensurePedalFocus(false); }, 35);
           }
         }, { passive: true, capture: true });
       });
 
-      // Monitoramento contínuo de 80ms para capturar movimento de cursor no iPadOS mesmo sem selectionchange
       setInterval(function() {
         if (!window.__mcEditingText) {
           checkSinkSelection();
           var sink = getSink();
-          if (sink && document.activeElement !== sink) {
+          if (!document.activeElement || document.activeElement === document.body || document.activeElement !== sink) {
             ensurePedalFocus(false);
           }
         }
-      }, 80);
+      }, 250);
 
       setTimeout(function() { ensurePedalFocus(true); }, 600);
       window.addEventListener('flutter-first-frame', function() {
