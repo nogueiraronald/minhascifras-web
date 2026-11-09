@@ -143,7 +143,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794225391';
+      window.minhasCifrasBuildVersion = 'main-1794227437';
       var swRegistration = null;
       var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
@@ -264,6 +264,41 @@
           wakeLockSentinel = null;
         }
       };
+
+      // --- Interceptador Universal de Pedal Bluetooth (M-VAVE, PageFlip, AirTurn, Donner) ---
+      window.dispatchPedalAction = null;
+
+      window.addEventListener('keydown', function(e) {
+        var active = document.activeElement;
+        var tag = active ? (active.tagName || '').toUpperCase() : '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) {
+          return;
+        }
+
+        var key = e.key || '';
+        var code = e.code || '';
+        var action = null;
+
+        if (key === 'ArrowRight' || code === 'ArrowRight' || code === 'Numpad6' || key === ']') {
+          action = 'next';
+        } else if (key === 'ArrowLeft' || code === 'ArrowLeft' || code === 'Numpad4' || key === '[') {
+          action = 'prev';
+        } else if (key === 'PageDown' || code === 'PageDown' || key === 'ArrowDown' || code === 'ArrowDown' || code === 'Numpad2' || code === 'Numpad3' || key === 'b' || key === 'B') {
+          action = 'down';
+        } else if (key === 'PageUp' || code === 'PageUp' || key === 'ArrowUp' || code === 'ArrowUp' || code === 'Numpad8' || code === 'Numpad9' || key === 'w' || key === 'W') {
+          action = 'up';
+        } else if (key === ' ' || code === 'Space') {
+          action = 'space';
+        } else if (key === 'Enter' || code === 'Enter' || code === 'NumpadEnter') {
+          action = 'enter';
+        }
+
+        if (action) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent('pedalaction', { detail: action }));
+        }
+      }, { capture: true, passive: false });
 
       document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'visible' && wakeLockEnabled) {
