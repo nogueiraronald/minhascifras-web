@@ -121,8 +121,8 @@
   </style>
 </head>
 <body tabindex="0">
-  <!-- Input oculto para manter canal de teclado Bluetooth ativo no Safari/iPadOS sem abrir teclado virtual -->
-  <input id="pedal-keyboard-sink" type="text" inputmode="none" tabindex="-1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:-200px; left:-200px; width:1px; height:1px; opacity:0.001; pointer-events:none; border:none; z-index:-10;" />
+  <!-- Sink invisível para manter canal de teclado Bluetooth ativo no Safari/iPadOS mesmo sem teclado físico -->
+  <textarea id="pedal-keyboard-sink" readonly inputmode="none" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; bottom:0; right:0; width:1px; height:1px; opacity:0.01; border:none; z-index:1; background:transparent; resize:none; padding:0; margin:0; pointer-events:auto;"></textarea>
 
   <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
   <div id="loading-screen">
@@ -146,7 +146,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794230235';
+      window.minhasCifrasBuildVersion = 'main-1794231985';
       var swRegistration = null;
       var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
@@ -275,12 +275,12 @@
       var lastPedalAction = '';
 
       function ensurePedalFocus() {
-        var active = document.activeElement;
-        var tag = active ? (active.tagName || '').toUpperCase() : '';
-        // Não rouba foco se o usuário estiver digitando em um input nativo explícito fora do sink
-        if (tag === 'TEXTAREA') return;
         var sink = document.getElementById('pedal-keyboard-sink');
-        if (sink && document.activeElement !== sink) {
+        if (!sink) return;
+        var active = document.activeElement;
+        // Não rouba foco se o usuário estiver digitando em campo de texto real
+        if (active && (active.tagName === 'TEXTAREA' && active.id !== 'pedal-keyboard-sink')) return;
+        if (document.activeElement !== sink) {
           try { sink.focus({ preventScroll: true }); } catch (e) {}
         }
       }
@@ -330,9 +330,9 @@
         window.dispatchEvent(new CustomEvent('pedaldebug', { detail: debugPayload }));
 
         if (action) {
-          // Debounce de segurança contra repetições de hardware e múltiplos listeners:
-          // Se for a mesma ação de navegação em menos de 250ms, bloqueia a propagação
-          if (action === lastPedalAction && (now - lastPedalTime) < 250) {
+          // Debounce estrito de 500ms contra repetições de hardware (como Continue Sending - CS do M-VAVE):
+          // Garante avanço e retrocesso estritamente de 1 em 1 música!
+          if ((now - lastPedalTime) < 500) {
             e.preventDefault();
             e.stopPropagation();
             return;
@@ -346,8 +346,12 @@
         }
       }
 
-      // Listener ÚNICO em window (evita duplicação com document)
+      // Escuta tanto em window quanto diretamente no sink para captura contínua no Safari
       window.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
+      var sinkEl = document.getElementById('pedal-keyboard-sink');
+      if (sinkEl) {
+        sinkEl.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
+      }
 
       // Suporte ao Modo Mouse do M-VAVE (Modo 4):
       // Botão Direito do mouse (contextmenu / button === 2) -> Próxima Música
