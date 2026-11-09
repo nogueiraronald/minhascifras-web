@@ -120,9 +120,9 @@
     }
   </style>
 </head>
-<body>
+<body tabindex="0">
   <!-- Receptor de texto oculto com "Teste" e cursor no meio ("Te|ste", índice 2) para capturar pedais Bluetooth no iPadOS (Safari e PWA) mesmo sem teclado físico -->
-  <input id="pedal-keyboard-sink" type="text" inputmode="none" value="Teste" tabindex="-1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:0; left:0; width:80px; height:24px; font-size:16px; opacity:0.01; color:transparent; background:transparent; border:none; outline:none; z-index:-1; pointer-events:none; padding:0; margin:0;" />
+  <input id="pedal-keyboard-sink" type="text" inputmode="none" value="Teste" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:0; left:0; width:1px; height:1px; font-size:16px; opacity:0.01; color:transparent; background:transparent; border:none; outline:none; z-index:1000; pointer-events:none; padding:0; margin:0;" />
 
   <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
   <div id="loading-screen">
@@ -146,7 +146,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794247355';
+      window.minhasCifrasBuildVersion = 'main-1794249246';
 
       // Atualização "de verdade": remove Service Workers e caches e recarrega da rede.
       window.mcHardUpdate = function() {
@@ -311,24 +311,22 @@
       // --- Interceptador Universal de Pedal Bluetooth (M-VAVE VAVE368, PageFlip, AirTurn, Donner) ---
       // Solução definitiva para iPadOS (Safari e PWA instalado) sem teclado físico:
       //  1) Mantém o receptor #pedal-keyboard-sink focado com o texto "Teste" e cursor na posição 2 ("Te|ste").
-      //  2) No iPadOS sem teclado físico, o pedal M-VAVE move o cursor de texto nativo (UITextInput):
+      //  2) No iPadOS sem teclado físico, o pedal M-VAVE move o cursor de texto nativo (UITextInput) ou envia keydown:
       //     - Voltar música (←): cursor vai de 2 para 1 ("T|este") -> 'prev'
       //     - Próxima música (→): cursor vai de 2 para 3 ("Tes|te") -> 'next'
       //     - Subir cifra (↑): cursor vai de 2 para 0 ("|Teste") -> 'up'
       //     - Descer cifra (↓): cursor vai de 2 para 5 ("Teste|") -> 'down'
-      //  3) Impede que <flt-glass-pane> / <flutter-view> roubem o foco do #pedal-keyboard-sink após o render do Flutter.
-      //  4) Só foca o #pedal-keyboard-sink no fim do toque (touchend/click na fase bubble), NUNCA no touchstart,
-      //     garantindo que todos os botões e opções do app respondam perfeitamente no iPad.
+      //  3) O estado window.__mcEditingText é controlado diretamente pelo FocusManager do Flutter (Dart),
+      //     garantindo que <flt-glass-pane> ou um .flt-text-editing residual NUNCA bloqueiem o pedal.
       window.dispatchPedalAction = null;
       window._lastPedalDebug = '';
+      window.__mcEditingText = false;
       var SINK_WORD = 'Teste';
       var SINK_ANCHOR = 2;
       var resettingSink = false;
       var lastPedalTime = 0;
       var lastPedalAction = '';
       var lastKeyDownAt = 0;
-      var lastPointerDownAt = 0;
-      var userEditingText = false;
 
       var origFocus = HTMLElement.prototype.focus;
       var origBlur = HTMLElement.prototype.blur;
@@ -347,16 +345,6 @@
         return false;
       }
 
-      function isRealTextInput(el) {
-        if (!el) return false;
-        var sink = getSink();
-        if (el === sink || el.id === 'pedal-keyboard-sink') return false;
-        var tag = (el.tagName || '').toUpperCase();
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-        if (el.isContentEditable) return true;
-        return false;
-      }
-
       function resetSinkCaret() {
         var sink = getSink();
         if (!sink) return;
@@ -372,26 +360,13 @@
         resettingSink = false;
       }
 
-      // Protege o foco do #pedal-keyboard-sink contra chamadas assíncronas de <flt-glass-pane>.focus()
+      // Redireciona chamadas de foco do canvas do Flutter (<flt-glass-pane>) para o #pedal-keyboard-sink
       HTMLElement.prototype.focus = function(options) {
         var sink = getSink();
         if (this === sink) {
           return origFocus.call(this, options);
         }
-        if (isRealTextInput(this)) {
-          // Só permite que um input do Flutter (.flt-text-editing) tome o foco se o usuário tocou na tela recentemente
-          var touchedRecently = (Date.now() - lastPointerDownAt) < 800;
-          if (!touchedRecently && !userEditingText) {
-            if (sink) {
-              try { origFocus.call(sink, { preventScroll: true }); } catch (e) {}
-              resetSinkCaret();
-            }
-            return;
-          }
-          userEditingText = true;
-          return origFocus.call(this, options);
-        }
-        if (isFlutterCanvasOrBody(this) && sink && !userEditingText) {
+        if (isFlutterCanvasOrBody(this) && sink && !window.__mcEditingText) {
           try {
             origFocus.call(sink, { preventScroll: true });
             resetSinkCaret();
@@ -403,12 +378,9 @@
 
       HTMLElement.prototype.blur = function() {
         var sink = getSink();
-        if (this === sink && !userEditingText) {
+        if (this === sink && !window.__mcEditingText) {
           resetSinkCaret();
           return;
-        }
-        if (isRealTextInput(this)) {
-          userEditingText = false;
         }
         return origBlur.call(this);
       };
@@ -417,13 +389,11 @@
         var sink = getSink();
         if (!sink) return;
         if (forceEndEdit === true) {
-          userEditingText = false;
+          window.__mcEditingText = false;
         }
-        var active = document.activeElement;
-        if (userEditingText && active && isRealTextInput(active)) {
+        if (window.__mcEditingText === true) {
           return;
         }
-        userEditingText = false;
         try {
           if (document.activeElement !== sink) {
             origFocus.call(sink, { preventScroll: true });
@@ -480,6 +450,7 @@
         }
         resetSinkCaret();
         window.dispatchEvent(new CustomEvent('pedalaction', { detail: action }));
+        setTimeout(function() { ensurePedalFocus(false); }, 30);
       }
 
       // Detecta o movimento do cursor no texto "Teste" (idêntico ao app Notas do iPadOS):
@@ -489,7 +460,7 @@
       //  - 0 ("|Teste")  -> subir cifra (up)
       //  - >=4 ("Teste|")-> descer cifra (down)
       function checkSinkSelection() {
-        if (resettingSink || userEditingText) return;
+        if (resettingSink || window.__mcEditingText) return;
         var sink = getSink();
         if (!sink || document.activeElement !== sink) return;
         if (sink.value !== SINK_WORD) {
@@ -524,8 +495,8 @@
         if (e.__mcHandled) return;
         e.__mcHandled = true;
 
-        // Se o usuário estiver digitando em um campo de texto real, não intercepta
-        if (userEditingText && isRealTextInput(e.target)) return;
+        // Só ignora se o usuário estiver ativamente digitando em um campo de busca/texto do Flutter
+        if (window.__mcEditingText === true) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
 
         var key = e.key || '';
@@ -534,8 +505,9 @@
         var isUp = e.type === 'keyup';
         var action = mapPedalAction(key, code, keyCode);
 
+        setTimeout(checkSinkSelection, 0);
+
         if (isUp) {
-          checkSinkSelection();
           if (!action || (Date.now() - lastKeyDownAt) < 900) return;
         } else {
           lastKeyDownAt = Date.now();
@@ -556,8 +528,14 @@
       var sinkEl = getSink();
       if (sinkEl) {
         resetSinkCaret();
+        sinkEl.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
+        sinkEl.addEventListener('keyup', checkSinkSelection, { capture: true, passive: true });
+        sinkEl.addEventListener('blur', function() {
+          if (window.__mcEditingText) return;
+          ensurePedalFocus(false);
+        });
         sinkEl.addEventListener('input', function(ev) {
-          if (resettingSink) return;
+          if (resettingSink || window.__mcEditingText) return;
           var data = (ev && ev.data) || '';
           resetSinkCaret();
           if (!data) return;
@@ -568,9 +546,14 @@
         });
       }
 
+      window.addEventListener('focusout', function() {
+        if (window.__mcEditingText) return;
+        ensurePedalFocus(false);
+      });
+
       // Suporte ao Modo Mouse do M-VAVE (Modo 4): botão direito -> Próxima, botão do meio/lateral -> Anterior/Próxima
       window.addEventListener('contextmenu', function(e) {
-        if (userEditingText && isRealTextInput(e.target)) return;
+        if (window.__mcEditingText) return;
         emitDebug({ type: 'mouse_context', key: '', code: '', keyCode: 0, action: 'next' });
         e.preventDefault();
         e.stopPropagation();
@@ -598,34 +581,29 @@
       window.addEventListener('pageshow', function() { ensurePedalFocus(false); });
       window.addEventListener('focus', function() { ensurePedalFocus(false); });
 
-      // Registra o instante do toque sem alterar o foco durante touchstart/pointerdown
-      // (alterar foco em touchstart cancelaria os toques nos botões do Flutter no iPadOS!)
-      ['touchstart', 'pointerdown', 'mousedown'].forEach(function(evt) {
+      // Em touchend / pointerup / click (fase capture, exatamente onde o iOS WebKit autoriza .focus() sem afetar touchstart):
+      ['touchend', 'pointerup', 'click', 'keydown'].forEach(function(evt) {
         document.addEventListener(evt, function() {
-          lastPointerDownAt = Date.now();
-        }, { passive: true, capture: true });
-      });
-
-      // Ao finalizar o toque (touchend / click / mouseup na fase bubble, DEPOIS que o Flutter processou o botão):
-      // Se o toque não abriu um campo de texto real, garante que o #pedal-keyboard-sink esteja focado com "Te|ste".
-      ['touchend', 'click', 'mouseup'].forEach(function(evt) {
-        document.addEventListener(evt, function(e) {
           if (wakeLockEnabled && (!wakeLockSentinel || wakeLockSentinel.released)) {
             requestScreenWakeLock();
           }
-          var active = document.activeElement;
-          if (isRealTextInput(e.target) || (userEditingText && isRealTextInput(active))) {
-            return;
+          if (!window.__mcEditingText) {
+            ensurePedalFocus(false);
+            setTimeout(function() { ensurePedalFocus(false); }, 35);
           }
-          ensurePedalFocus(false);
-        }, { passive: true, capture: false });
+        }, { passive: true, capture: true });
       });
 
+      // Monitoramento contínuo de 80ms para capturar movimento de cursor no iPadOS mesmo sem selectionchange
       setInterval(function() {
-        if (!userEditingText) {
-          resetSinkCaret();
+        if (!window.__mcEditingText) {
+          checkSinkSelection();
+          var sink = getSink();
+          if (sink && document.activeElement !== sink) {
+            ensurePedalFocus(false);
+          }
         }
-      }, 600);
+      }, 80);
 
       setTimeout(function() { ensurePedalFocus(true); }, 600);
       window.addEventListener('flutter-first-frame', function() {
