@@ -37,6 +37,6 @@ _flutter.buildConfig = {"engineRevision":"59aa584fdf100e6c78c785d8a5b565d1de4b48
 
 _flutter.loader.load({
   serviceWorkerSettings: null, config: {canvasKitBaseUrl: "canvaskit/", useLocalCanvasKit: true, fontFallbackBaseUrl: "assets/fonts/"}, _old: {
-    serviceWorkerVersion: "994066461" /* Flutter's service worker is deprecated and will be removed in a future Flutter release. */
+    serviceWorkerVersion: "3037037030" /* Flutter's service worker is deprecated and will be removed in a future Flutter release. */
   }
 });
