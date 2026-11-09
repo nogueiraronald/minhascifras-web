@@ -122,7 +122,7 @@
 </head>
 <body tabindex="0">
   <!-- Sink invisível para manter canal de teclado Bluetooth ativo no Safari/iPadOS mesmo sem teclado físico -->
-  <input id="pedal-keyboard-sink" type="text" inputmode="none" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; bottom:0; right:0; width:1px; height:1px; opacity:0.01; border:none; z-index:1; background:transparent; padding:0; margin:0; pointer-events:none;" />
+  <input id="pedal-keyboard-sink" type="text" inputmode="none" tabindex="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="position:fixed; top:0; left:0; width:1px; height:1px; opacity:0.01; border:none; z-index:1000; background:transparent; padding:0; margin:0;" />
 
   <!-- Tela de inicialização suave (Dark Splash) para evitar qualquer tela branca em celulares -->
   <div id="loading-screen">
@@ -146,7 +146,7 @@
   <!-- Service Worker para funcionamento 100% offline e Atualização Automática Silenciosa -->
   <script>
     (function() {
-      window.minhasCifrasBuildVersion = 'main-1794233387';
+      window.minhasCifrasBuildVersion = 'main-1794234899';
       var swRegistration = null;
       var hasReloadedThisSession = sessionStorage.getItem('mc_reloaded_for_update') === 'true';
 
@@ -358,18 +358,31 @@
       if (sinkEl) {
         sinkEl.addEventListener('keydown', processKeyEvent, { capture: true, passive: false });
         sinkEl.addEventListener('blur', function() {
-          setTimeout(ensurePedalFocus, 50);
+          var active = document.activeElement;
+          if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.id !== 'pedal-keyboard-sink') return;
+          if (active && active.isContentEditable) return;
+          try { sinkEl.focus({ preventScroll: true }); } catch (e) {}
         });
         sinkEl.addEventListener('input', function() {
           sinkEl.value = '';
         });
       }
 
+      window.addEventListener('focusout', function() {
+        var active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.id !== 'pedal-keyboard-sink') return;
+        if (active && active.isContentEditable) return;
+        var s = document.getElementById('pedal-keyboard-sink');
+        if (s && document.activeElement !== s) {
+          try { s.focus({ preventScroll: true }); } catch (e) {}
+        }
+      });
+
       setInterval(function() {
         if (!document.activeElement || document.activeElement === document.body) {
           ensurePedalFocus();
         }
-      }, 1000);
+      }, 800);
 
       // Suporte ao Modo Mouse do M-VAVE (Modo 4):
       // Botão Direito do mouse (contextmenu / button === 2) -> Próxima Música
@@ -414,8 +427,11 @@
         }
       });
 
-      ['touchstart', 'pointerdown', 'click', 'keydown'].forEach(function(evt) {
-        document.addEventListener(evt, function() {
+      ['touchend', 'click', 'pointerup', 'keydown'].forEach(function(evt) {
+        document.addEventListener(evt, function(e) {
+          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target.id !== 'pedal-keyboard-sink') {
+            return;
+          }
           ensurePedalFocus();
           if (wakeLockEnabled && (!wakeLockSentinel || wakeLockSentinel.released)) {
             requestScreenWakeLock();
